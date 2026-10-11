@@ -115,6 +115,7 @@ class TextLayer(StrictModel):
 class PanelRequest(StrictModel):
     side: Literal["front", "back"]
     source: Path
+    reconstruction_mode: Literal["trace_source", "ai_flat_artwork"] = "trace_source"
     crop: Crop | None = None
     # Clockwise source coordinates: top-left, top-right, bottom-right, bottom-left.
     perspective_quad: list[Point] | None = Field(default=None, min_length=4, max_length=4)

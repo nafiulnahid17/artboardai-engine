@@ -1,9 +1,13 @@
 import json
+import io
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from PIL import Image
+
+from .ai_generation import reconstruct_panel
 from .exporters import ColorConverter, ensure_formats, export_eps, export_svg
 from .fidelity import compare_preview
 from .images import analyze_image, extract_panel, load_image
@@ -55,15 +59,42 @@ def process_job(
                 uncertainty = extracted.info.pop("artboard_uncertainty_mask")
                 uncertainty.save(output / f"{panel.side}-body-uncertainty.png")
             extracted.save(directory / "extracted.png")
-            analysis = analyze_image(extracted)
+            reconstruction = {
+                "mode": panel.reconstruction_mode,
+                "status": "not_requested" if panel.reconstruction_mode == "trace_source" else "pending",
+                "requires_operator_confirmation": panel.reconstruction_mode == "ai_flat_artwork",
+            }
+            artwork_image = extracted
+            if panel.reconstruction_mode == "ai_flat_artwork":
+                if progress:
+                    progress(f"{panel.side}:ai_flat_artwork", panel_index * 45 + 12)
+                generated = reconstruct_panel(extracted, panel.side)
+                draft_filename = f"{panel.side}-flat-art-draft.png"
+                (directory / "flat-art-draft.png").write_bytes(generated.png)
+                (output / draft_filename).write_bytes(generated.png)
+                with Image.open(io.BytesIO(generated.png)) as draft:
+                    artwork_image = draft.convert("RGBA")
+                reconstruction.update({
+                    "status": "draft_created",
+                    "model": generated.model,
+                    "draft_dimensions": [generated.width, generated.height],
+                    "draft_file": draft_filename,
+                    "source_fidelity_verified": False,
+                    "notice": (
+                        "AI output is an approximate raster draft, not recovered original artwork. "
+                        "Inspect wording, logos, colors, and any folded or hidden regions against the source."
+                    ),
+                })
+            analysis = analyze_image(artwork_image)
             if progress:
                 progress(f"{panel.side}:ocr", panel_index * 45 + 15)
-            ocr = recognize_text(directory / "extracted.png", panel.ocr_language) if panel.run_ocr else {
+            artwork_image.save(directory / "artwork-input.png")
+            ocr = recognize_text(directory / "artwork-input.png", panel.ocr_language) if panel.run_ocr else {
                 "status": "explicitly_disabled", "requires_operator_confirmation": True,
             }
             if progress:
                 progress(f"{panel.side}:trace", panel_index * 45 + 25)
-            prepared = erase_confirmed_text(extracted, panel.text_layers)
+            prepared = erase_confirmed_text(artwork_image, panel.text_layers)
             def vectorized():
                 if progress:
                     progress(f"{panel.side}:vectorize", panel_index * 45 + 34)
@@ -103,6 +134,7 @@ def process_job(
                 )
             manifest["panels"][panel.side] = {
                 "analysis": analysis, "ocr": ocr, "trace": trace_report,
+                "reconstruction": reconstruction,
                 "confirmed_text_layers": text_reports, "fidelity": fidelity,
                 "flattening": flattening,
                 "fidelity_note": "Original-source comparison skipped for intentional text replacements; review the preview manually." if panel.text_layers else None,
@@ -115,6 +147,10 @@ def process_job(
         blockers = [
             "Operator must confirm text, logos and tracing fidelity against the source.",
         ]
+        if any(p["reconstruction"]["mode"] == "ai_flat_artwork" for p in manifest["panels"].values()):
+            blockers.append(
+                "AI flat-art reconstruction is an approximation. Verify the generated draft against the original, especially text, logos, and occluded areas."
+            )
         if not colors.transform:
             blockers.append("Optional ICC not supplied: EPS uses disclosed unmanaged DeviceCMYK. Export is allowed; printer-specific color matching is not claimed.")
         if any(p["trace"]["aspect_ratio_requires_review"] for p in manifest["panels"].values()):

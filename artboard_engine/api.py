@@ -59,6 +59,7 @@ class APIReferencePatch(StrictModel):
 class APIPanel(StrictModel):
     side: Literal["front", "back"]
     source_id: uuid.UUID
+    reconstruction_mode: Literal["trace_source", "ai_flat_artwork"] = "trace_source"
     crop: Crop | None = None
     perspective_quad: list[Point] | None = Field(default=None, min_length=4, max_length=4)
     remove_edge_background: bool = False
@@ -144,7 +145,9 @@ def create_app(workspace: Path, token: str | None = None, cmyk_profile: Path | N
 
     @app.exception_handler(EngineError)
     async def engine_error(_request, exc):
-        status = 503 if exc.code in ("AI_NOT_CONFIGURED", "OCR_UNAVAILABLE") else 422
+        status = 503 if exc.code in (
+            "AI_NOT_CONFIGURED", "AI_GENERATION_NOT_CONFIGURED", "AI_RECONSTRUCTION_FAILED", "OCR_UNAVAILABLE",
+        ) else 422
         return JSONResponse(status_code=status, content={"error": {"code": exc.code, "message": str(exc)}})
 
     async def access(authorization: str | None = Header(default=None)):
@@ -342,6 +345,11 @@ def create_app(workspace: Path, token: str | None = None, cmyk_profile: Path | N
                 ) for patch in p.reference_patches],
             ) for p in payload.panels],
         )
+        if any(panel.reconstruction_mode == "ai_flat_artwork" for panel in request.panels) and not ai_generation_configured():
+            raise EngineError(
+                "AI_GENERATION_NOT_CONFIGURED",
+                "AI flat-art reconstruction is not configured on the engine. Choose source tracing or configure the image-generation provider.",
+            )
         # Decode and bounds-check selections before putting any work in the queue.
         from .images import extract_panel
         for panel in request.panels:
@@ -425,6 +433,7 @@ def create_app(workspace: Path, token: str | None = None, cmyk_profile: Path | N
             raise HTTPException(409, "Outputs are not ready.")
         allowed = {"manifest.json", "front-body.svg", "front-body.eps", "back-body.svg", "back-body.eps",
                    "front-body.ai", "back-body.ai", "front-body-uncertainty.png", "back-body-uncertainty.png",
+                   "front-flat-art-draft.png", "back-flat-art-draft.png",
                    "front-body-preview.png", "back-body-preview.png",
                    "front-body-difference.png", "back-body-difference.png"}
         if filename not in allowed:

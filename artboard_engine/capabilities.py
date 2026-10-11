@@ -30,6 +30,15 @@ def capabilities() -> dict:
             "requires_operator_review": True,
             "automatic_export_or_approval": False,
         },
+        "ai_flat_artwork_reconstruction": {
+            "configured": ai_generation_configured(),
+            "models": generation_model_names(),
+            "output": "review-only flat raster draft, then traced to editable vector paths",
+            "automatic_photo_flattening": False,
+            "hidden_artwork_reconstruction": False,
+            "requires_operator_confirmation": True,
+            "source_fidelity_verified": False,
+        },
         "panel_detection": {
             "local_candidate_detection": True,
             "local_method": "transparent_alpha_or_uniform_corner_background",

@@ -64,6 +64,39 @@ class AIArtworkGenerationTests(unittest.TestCase):
         self.assertEqual(content[1]["type"], "image_url")
         self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/png;base64,"))
 
+    def test_reconstructs_flat_art_from_the_supplied_photo_and_labels_it_as_a_draft(self):
+        calls = []
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kwargs: (calls.append(kwargs) or response_for(png_data_url()))
+        )))
+        source = Image.new("RGB", (128, 240), (30, 80, 150))
+        with (
+            patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=True),
+            patch.object(ai_generation, "OpenAI", return_value=fake_client),
+        ):
+            result = ai_generation.reconstruct_panel(source, "back")
+
+        self.assertEqual(result.model, ai_generation.DEFAULT_PRIMARY_MODEL)
+        self.assertEqual(calls[0]["modalities"], ["image", "text"])
+        content = calls[0]["messages"][0]["content"]
+        self.assertIn("BACK body", content[0]["text"])
+        self.assertIn("Remove fabric texture, wrinkles, folds", content[0]["text"])
+        self.assertIn("do not invent", content[0]["text"])
+        self.assertEqual(content[1]["type"], "image_url")
+        self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/png;base64,"))
+
+    def test_reconstruction_requires_openrouter_and_rejects_invalid_side(self):
+        source = Image.new("RGB", (20, 30), "white")
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(EngineError) as missing:
+                ai_generation.reconstruct_panel(source, "front")
+        self.assertEqual(missing.exception.code, "AI_GENERATION_NOT_CONFIGURED")
+
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=True):
+            with self.assertRaises(EngineError) as invalid:
+                ai_generation.reconstruct_panel(source, "sleeve")
+        self.assertEqual(invalid.exception.code, "INVALID_PANEL_SIDE")
+
     def test_falls_back_when_primary_model_fails(self):
         calls = []
 
