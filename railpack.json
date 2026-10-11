@@ -2,6 +2,10 @@
   "$schema": "https://schema.railpack.com",
   "steps": {
     "install": {
+      "inputs": [
+        "...",
+        "."
+      ],
       "commands": [
         "python -m pip install --no-cache-dir -r requirements.txt",
         "python -c \"import pydantic, fastapi, uvicorn\""
@@ -14,6 +18,7 @@
       "ARTBOARD_HOST": "0.0.0.0"
     },
     "aptPackages": [
+      "...",
       "tesseract-ocr",
       "tesseract-ocr-eng",
       "ghostscript"
