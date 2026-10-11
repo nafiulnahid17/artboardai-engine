@@ -18,6 +18,8 @@ class Canvas(StrictModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     width_inches: Literal[22] = 22
     height_inches: Literal[31] = 31
+    width_mm: Literal[558.8] = 558.8
+    height_mm: Literal[787.4] = 787.4
     width_points: Literal[1584] = 1584
     height_points: Literal[2232] = 2232
     color_mode: Literal["CMYK"] = "CMYK"

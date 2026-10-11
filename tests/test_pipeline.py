@@ -74,7 +74,13 @@ class FlatArtworkPipelineTests(unittest.TestCase):
             self.assertFalse(
                 result["panels"]["front"]["reconstruction"]["source_fidelity_verified"],
             )
+            self.assertEqual(result["canvas"]["width_mm"], 558.8)
+            self.assertEqual(result["canvas"]["height_mm"], 787.4)
+            self.assertEqual(result["panels"]["front"]["canvas_fit"]["canvas_fit_dimensions_px"], [170, 240])
+            self.assertFalse(result["panels"]["front"]["canvas_fit"]["cropped_source_pixels"])
             self.assertTrue((output / "front-flat-art-draft.png").is_file())
+            with Image.open(output / "front-flat-art-draft.png") as draft:
+                self.assertEqual(draft.size, (170, 240))
             self.assertTrue((output / "front-body.svg").is_file())
             manifest = json.loads((output / "manifest.json").read_text())
             self.assertTrue(any(

@@ -1,5 +1,6 @@
 import warnings
 import io
+import math
 from pathlib import Path
 
 import cv2
@@ -78,6 +79,39 @@ def analyze_image(image: Image.Image) -> dict:
         "source_color": image.info.get("artboard_source_color", {"normalization": "inherited_sRGB"}),
         "canvas": CANVAS.model_dump(),
         "part_detection": {"status": "not_requested", "requires_operator_confirmation": True},
+    }
+
+
+def fit_image_to_canvas(image: Image.Image) -> tuple[Image.Image, dict]:
+    """Fit every source pixel to the locked canvas without cropping any content."""
+    source_width, source_height = image.size
+    target_ratio = CANVAS.width_mm / CANVAS.height_mm
+    source_ratio = source_width / source_height
+    target_width = max(1, round(source_height * target_ratio))
+    target_height = source_height
+    downsampled = False
+
+    if target_width * target_height > MAX_PIXELS:
+        reduction = math.sqrt(MAX_PIXELS / (target_width * target_height))
+        target_width = max(1, round(target_width * reduction))
+        target_height = max(1, round(target_height * reduction))
+        downsampled = True
+
+    fitted = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    horizontal_scale = target_width / source_width
+    vertical_scale = target_height / source_height
+    aspect_adjustment_percent = abs(source_ratio / target_ratio - 1) * 100
+    return fitted, {
+        "source_dimensions_px": [source_width, source_height],
+        "canvas_fit_dimensions_px": [target_width, target_height],
+        "canvas_dimensions_mm": [CANVAS.width_mm, CANVAS.height_mm],
+        "placement": "stretch_to_full_canvas_no_crop",
+        "cropped_source_pixels": False,
+        "horizontal_scale_percent": round(horizontal_scale * 100, 3),
+        "vertical_scale_percent": round(vertical_scale * 100, 3),
+        "aspect_adjustment_percent": round(aspect_adjustment_percent, 3),
+        "downsampled_to_engine_pixel_limit": downsampled,
+        "requires_operator_review": aspect_adjustment_percent > 3 or downsampled,
     }
 
 

@@ -80,6 +80,9 @@ class AIArtworkGenerationTests(unittest.TestCase):
         self.assertEqual(calls[0]["modalities"], ["image", "text"])
         content = calls[0]["messages"][0]["content"]
         self.assertIn("BACK body", content[0]["text"])
+        self.assertIn("558.8 mm × 787.4 mm", content[0]["text"])
+        self.assertIn("complete front or back body design", content[0]["text"])
+        self.assertIn("half-panel", content[0]["text"])
         self.assertIn("Remove fabric texture, wrinkles, folds", content[0]["text"])
         self.assertIn("do not invent", content[0]["text"])
         self.assertEqual(content[1]["type"], "image_url")

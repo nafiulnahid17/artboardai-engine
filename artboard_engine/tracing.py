@@ -45,9 +45,11 @@ def trace_artwork(
         on_vectorized()
     root = SafeET.parse(output).getroot()
     width, height = work.size
-    # Fit without distortion. Any unused canvas area stays transparent.
-    scale = min(CANVAS.width_points / width, CANVAS.height_points / height)
-    offset = complex((CANVAS.width_points - width * scale) / 2, (CANVAS.height_points - height * scale) / 2)
+    # Map the complete input panel to the locked canvas without cropping. The
+    # pipeline normalizes panel images first; direct callers still get a full
+    # canvas mapping, with any aspect-ratio change disclosed for review.
+    scale_x = CANVAS.width_points / width
+    scale_y = CANVAS.height_points / height
     shapes = []
     segment_count = 0
     removed_degenerate = 0
@@ -76,18 +78,22 @@ def trace_artwork(
             continue
         # Keep continuity/closure and the winding order of compound paths.
         from svgpathtools import Path as VectorPath
-        path = VectorPath(*clean).scaled(scale).translated(offset)
+        path = VectorPath(*clean).scaled(scale_x, scale_y)
         segment_count += len(path)
         if segment_count > MAX_SEGMENTS or len(shapes) >= MAX_PATHS:
             raise EngineError("TRACE_TOO_COMPLEX", "Trace exceeds complexity limits. Reduce colors, increase speckle filtering, or crop the source.")
         shapes.append(Shape(path, tuple(int(color[i:i + 2], 16) for i in (1, 3, 5)), f"color-{color[1:].lower()}"))
     if not shapes:
         raise EngineError("EMPTY_TRACE", "No vector shapes were produced.")
-    aspect_warning = abs(width / height - 22 / 31) / (22 / 31) > 0.03
+    canvas_aspect = CANVAS.width_points / CANVAS.height_points
+    aspect_deviation_percent = abs((width / height) / canvas_aspect - 1) * 100
+    aspect_warning = aspect_deviation_percent > 3
     return shapes, {
         "engine": "vtracer", "path_count": len(shapes), "segment_count": segment_count,
         "removed_zero_length_lines": removed_degenerate,
-        "trace_resolution_px": [width, height], "placement": "contain_centered_no_stretch",
+        "trace_resolution_px": [width, height], "placement": "stretch_to_full_canvas_no_crop",
+        "source_content_cropped": False,
+        "aspect_ratio_deviation_percent": round(aspect_deviation_percent, 3),
         "aspect_ratio_requires_review": aspect_warning,
         "embedded_raster_count": 0,
         "note": "Raster tracing is an approximation. Original editable design layers and fonts cannot be recovered automatically.",

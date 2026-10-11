@@ -72,7 +72,7 @@ def export_svg(shapes: list[Shape], target: Path, colors: ColorConverter, side: 
     ET.register_namespace("", "http://www.w3.org/2000/svg")
     ns = "{http://www.w3.org/2000/svg}"
     root = ET.Element(ns + "svg", {
-        "width": "22in", "height": "31in", "viewBox": "0 0 1584 2232",
+        "width": "558.8mm", "height": "787.4mm", "viewBox": "0 0 1584 2232",
         "version": "1.1",
     })
     ET.SubElement(root, ns + "title").text = f"Artboard Ai — {side} body"

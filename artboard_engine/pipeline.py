@@ -10,7 +10,7 @@ from PIL import Image
 from .ai_generation import reconstruct_panel
 from .exporters import ColorConverter, ensure_formats, export_eps, export_svg
 from .fidelity import compare_preview
-from .images import analyze_image, extract_panel, load_image
+from .images import analyze_image, extract_panel, fit_image_to_canvas, load_image
 from .models import CANVAS, EngineError, JobRequest
 from .ocr import recognize_text
 from .preview import render_preview
@@ -65,24 +65,30 @@ def process_job(
                 "requires_operator_confirmation": panel.reconstruction_mode == "ai_flat_artwork",
             }
             artwork_image = extracted
+            generated = None
             if panel.reconstruction_mode == "ai_flat_artwork":
                 if progress:
                     progress(f"{panel.side}:ai_flat_artwork", panel_index * 45 + 12)
                 generated = reconstruct_panel(extracted, panel.side)
-                draft_filename = f"{panel.side}-flat-art-draft.png"
-                (directory / "flat-art-draft.png").write_bytes(generated.png)
-                (output / draft_filename).write_bytes(generated.png)
                 with Image.open(io.BytesIO(generated.png)) as draft:
                     artwork_image = draft.convert("RGBA")
+            artwork_image, canvas_fit = fit_image_to_canvas(artwork_image)
+            if generated:
+                draft_filename = f"{panel.side}-flat-art-draft.png"
+                artwork_image.save(directory / "flat-art-draft.png", format="PNG", optimize=True)
+                artwork_image.save(output / draft_filename, format="PNG", optimize=True)
                 reconstruction.update({
                     "status": "draft_created",
                     "model": generated.model,
-                    "draft_dimensions": [generated.width, generated.height],
+                    "model_output_dimensions": [generated.width, generated.height],
+                    "draft_dimensions": list(artwork_image.size),
                     "draft_file": draft_filename,
+                    "canvas_fit": canvas_fit,
                     "source_fidelity_verified": False,
                     "notice": (
                         "AI output is an approximate raster draft, not recovered original artwork. "
-                        "Inspect wording, logos, colors, and any folded or hidden regions against the source."
+                        "All generated pixels are mapped onto the full canvas without cropping. "
+                        "Inspect wording, logos, proportions, colors, and any folded or hidden regions against the source."
                     ),
                 })
             analysis = analyze_image(artwork_image)
@@ -135,6 +141,7 @@ def process_job(
             manifest["panels"][panel.side] = {
                 "analysis": analysis, "ocr": ocr, "trace": trace_report,
                 "reconstruction": reconstruction,
+                "canvas_fit": canvas_fit,
                 "confirmed_text_layers": text_reports, "fidelity": fidelity,
                 "flattening": flattening,
                 "fidelity_note": "Original-source comparison skipped for intentional text replacements; review the preview manually." if panel.text_layers else None,
@@ -154,7 +161,9 @@ def process_job(
         if not colors.transform:
             blockers.append("Optional ICC not supplied: EPS uses disclosed unmanaged DeviceCMYK. Export is allowed; printer-specific color matching is not claimed.")
         if any(p["trace"]["aspect_ratio_requires_review"] for p in manifest["panels"].values()):
-            blockers.append("Artwork was fitted without stretching; verify margins and full-panel coverage.")
+            blockers.append("Vector tracing required aspect-ratio adjustment to fill the entire canvas. Inspect lettering, logos, and proportions.")
+        if any(p["canvas_fit"]["requires_operator_review"] for p in manifest["panels"].values()):
+            blockers.append("The complete input was mapped to the full canvas without cropping; aspect-ratio adjustment or downsampling may affect appearance. Review both full panels.")
         if any(p["fidelity"] and p["fidelity"]["automatic_review_flag"] for p in manifest["panels"].values()):
             blockers.append("Visual fidelity check flagged differences. Inspect the previews and heatmaps before approval.")
         if any(p.get("flattening") and p["flattening"]["requires_reconstruction"] for p in manifest["panels"].values()):
