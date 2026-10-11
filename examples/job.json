@@ -1,0 +1,18 @@
+{
+  "dpi": 600,
+  "formats": ["svg", "eps"],
+  "panels": [
+    {
+      "side": "front",
+      "source": "front.png",
+      "run_ocr": true,
+      "trace": {"mode": "spline", "color_precision": 6, "filter_speckle": 4}
+    },
+    {
+      "side": "back",
+      "source": "back.png",
+      "run_ocr": true,
+      "trace": {"mode": "spline", "color_precision": 6, "filter_speckle": 4}
+    }
+  ]
+}
