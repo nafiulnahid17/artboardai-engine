@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import vtracer
 from defusedxml import ElementTree as SafeET
@@ -21,7 +22,12 @@ class Shape:
     layer: str
 
 
-def trace_artwork(image: Image.Image, directory: Path, settings: TraceSettings) -> tuple[list[Shape], dict]:
+def trace_artwork(
+    image: Image.Image,
+    directory: Path,
+    settings: TraceSettings,
+    on_vectorized: Callable[[], None] | None = None,
+) -> tuple[list[Shape], dict]:
     work = image.copy()
     work.thumbnail((settings.max_dimension, settings.max_dimension))
     work.save(directory / "trace-input.png")
@@ -35,6 +41,8 @@ def trace_artwork(image: Image.Image, directory: Path, settings: TraceSettings) 
         length_threshold=settings.length_threshold, max_iterations=10,
         splice_threshold=settings.splice_threshold, path_precision=3,
     )
+    if on_vectorized:
+        on_vectorized()
     root = SafeET.parse(output).getroot()
     width, height = work.size
     # Fit without distortion. Any unused canvas area stays transparent.

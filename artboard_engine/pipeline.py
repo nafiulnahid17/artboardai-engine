@@ -64,7 +64,10 @@ def process_job(
             if progress:
                 progress(f"{panel.side}:trace", panel_index * 45 + 25)
             prepared = erase_confirmed_text(extracted, panel.text_layers)
-            shapes, trace_report = trace_artwork(prepared, directory, panel.trace)
+            def vectorized():
+                if progress:
+                    progress(f"{panel.side}:vectorize", panel_index * 45 + 34)
+            shapes, trace_report = trace_artwork(prepared, directory, panel.trace, vectorized)
             text_reports = []
             for text_index, text_layer in enumerate(panel.text_layers):
                 rebuilt, text_report = build_text_paths(text_layer, text_index)

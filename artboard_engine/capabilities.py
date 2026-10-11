@@ -1,6 +1,7 @@
 import shutil
 
 from .assistant import ai_configured
+from .ai_generation import ai_generation_configured, generation_model_names
 from .models import CANVAS
 
 
@@ -20,6 +21,13 @@ def capabilities() -> dict:
         "ocr": {"available": bool(shutil.which("tesseract")), "engine": "tesseract", "advisory_only": True},
         "ai_assistance": {
             "configured": ai_configured(), "features": ["part_suggestions", "input_analysis", "text_observations", "tracing_mode_suggestions"],
+            "automatic_export_or_approval": False,
+        },
+        "ai_artwork_generation": {
+            "configured": ai_generation_configured(),
+            "models": generation_model_names(),
+            "output": "generated raster draft, then locally traced to editable vector paths",
+            "requires_operator_review": True,
             "automatic_export_or_approval": False,
         },
         "panel_detection": {

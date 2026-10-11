@@ -244,6 +244,10 @@ sample outputs under `generated-artifacts/`. This is not final production testin
 - `ARTBOARD_AI_FALLBACK_MODEL`: OpenRouter fallback; defaults to
   `google/gemini-3.1-pro-preview`. The fallback is attempted only after the
   primary request fails or returns invalid structured data.
+- `ARTBOARD_AI_GENERATION_MODEL`: optional primary image model for new artwork;
+  defaults to `openai/gpt-5.4-image-2`.
+- `ARTBOARD_AI_GENERATION_FALLBACK_MODEL`: optional image-generation fallback;
+  defaults to `google/gemini-3-pro-image`. Both use the same OpenRouter key.
 - For compatibility, `AI_INTEGRATIONS_OPENAI_BASE_URL` and
   `AI_INTEGRATIONS_OPENAI_API_KEY` are still accepted when the base URL is
   OpenRouter.
@@ -253,15 +257,33 @@ Do not commit keys, uploaded client artwork, runtime jobs or generated outputs.
 ## Development sequence
 
 User-approved order: **engine → web UI → configuration → testing**.
-Only headless engine code and bounded smoke verification are part of this phase.
-The scope is artwork analysis, editable vector engineering and export. Printer
-production approval, physical proofs and a "Go for production" phase are excluded.
+The web UI now exposes source-photo rebuild and new-brief generation workflows;
+the new generation route still requires the engine code to be deployed and
+verified against the live OpenRouter account.
+Printer production approval, physical proofs and a "Go for production" phase are excluded.
 ICC/ICM transforms remain optional engineering support, not export prerequisites.
 Licensed Illustrator is still required to execute genuine native AI Save As.
 
+## AI artwork generation
+
+`POST /api/engine/generate` accepts a written design brief, optional front/back
+notes, a 330 or 600 DPI raster-content target, and SVG/EPS output selection. The
+engine calls the configured OpenRouter image models for one front and one back
+draft, then runs each generated raster through the existing local OCR, trace,
+CMYK conversion and export pipeline. The back request receives the generated
+front as a visual reference to encourage a matching set.
+
+This route is available only when `OPENROUTER_API_KEY` is configured. Generated
+image files are drafts; text, logos, details and traced paths require operator
+review. The capability endpoint reports the configured model names, but that
+does not guarantee live provider availability. It does not create a native AI
+file or certify an EPS/ICC/printer workflow.
+
 ## Guided flattening and native export
 
-There is still **no web UI and no active AI provider**. This workflow is headless.
+The web UI does not claim automatic garment dewarping. Guided mesh flattening
+remains a separate, operator-controlled engine capability; it is not applied
+automatically to uploaded photos or generated artwork.
 
 - `PanelRequest.flatten`: an operator-verified 2–12 × 2–12 control grid, in
   EXIF-corrected source pixels. Grid rows/columns map to regular points on the

@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import Field, model_validator
 
 from .assistant import analyze_with_ai
+from .ai_generation import ai_generation_configured, generate_panel, generation_model_names
 from .capabilities import capabilities
 from .detection import detect_panels
 from .exporters import ColorConverter, ensure_formats
@@ -94,6 +95,20 @@ class APIJob(StrictModel):
             raise ValueError("Exactly one front and one back are required.")
         if not self.formats or len(set(self.formats)) != len(self.formats):
             raise ValueError("Select at least one format without duplicates.")
+        return self
+
+
+class AIGenerationJob(StrictModel):
+    brief: str = Field(min_length=10, max_length=4000)
+    front_notes: str = Field(default="", max_length=800)
+    back_notes: str = Field(default="", max_length=800)
+    dpi: Literal[330, 600] = 330
+    formats: list[Literal["svg", "eps"]] = Field(default_factory=lambda: ["svg", "eps"])
+
+    @model_validator(mode="after")
+    def valid_formats(self):
+        if not self.formats or len(set(self.formats)) != len(self.formats):
+            raise ValueError("Select at least one output format without duplicates.")
         return self
 
 
@@ -258,6 +273,57 @@ def create_app(workspace: Path, token: str | None = None, cmyk_profile: Path | N
                 "message": str(exc) if isinstance(exc, EngineError) else "Processing failed. Consult engine logs.",
             })
 
+    def execute_generated(job_id: uuid.UUID, payload: AIGenerationJob, selected_profile: Path | None):
+        try:
+            generation_dir = jobs / str(job_id) / "generation"
+            generation_dir.mkdir(parents=True, exist_ok=True)
+            update_state(job_id, status="processing", stage="ai_generate_front", progress=5)
+            front = generate_panel(payload.brief, "front", payload.front_notes)
+            front_path = generation_dir / "front.png"
+            front_path.write_bytes(front.png)
+            update_state(job_id, stage="ai_generate_back", progress=21)
+            back = generate_panel(
+                payload.brief, "back", payload.back_notes,
+                reference_png=front.png, preferred_models=[front.model, *[
+                    name for name in generation_model_names() if name != front.model
+                ]],
+            )
+            back_path = generation_dir / "back.png"
+            back_path.write_bytes(back.png)
+            request = JobRequest(
+                dpi=payload.dpi,
+                formats=payload.formats,
+                native_ai_mode="disabled",
+                panels=[
+                    PanelRequest(side="front", source=front_path, run_ocr=True),
+                    PanelRequest(side="back", source=back_path, run_ocr=True),
+                ],
+            )
+            result = process_isolated(
+                request, jobs / str(job_id) / "output", selected_profile,
+                lambda stage, value: update_state(
+                    job_id, stage=stage, progress=min(99, 35 + round(value * 0.64)),
+                ),
+            )
+            result["generation"] = {
+                "mode": "new_artwork_from_brief",
+                "models": {"front": front.model, "back": back.model},
+                "generated_images": {
+                    "front": {"width": front.width, "height": front.height},
+                    "back": {"width": back.width, "height": back.height},
+                },
+                "requires_operator_review": True,
+                "notice": "AI-generated artwork was raster-traced. Inspect generated text, logos, fidelity and paths before use.",
+            }
+            atomic_json(jobs / str(job_id) / "output" / "manifest.json", result)
+            update_state(job_id, status=result["status"], result=result, progress=100)
+        except Exception as exc:
+            logger.exception("AI artwork generation job failed: %s", job_id)
+            update_state(job_id, status="failed", error={
+                "code": exc.code if isinstance(exc, EngineError) else "AI_GENERATION_FAILED",
+                "message": str(exc) if isinstance(exc, EngineError) else "AI artwork generation failed. Revise the brief or try again.",
+            })
+
     @router.post("/jobs", status_code=202)
     def create_job(payload: APIJob):
         ensure_formats(payload.formats, payload.native_ai_mode)
@@ -290,6 +356,43 @@ def create_app(workspace: Path, token: str | None = None, cmyk_profile: Path | N
             atomic_json(directory / "state.json", state)
             atomic_json(directory / "request.json", payload.model_dump(mode="json"))
             future = executor.submit(execute, job_id, request, selected_profile)
+            futures[str(job_id)] = future
+            def completed(_future):
+                with lock:
+                    futures.pop(str(job_id), None)
+                slots.release()
+            future.add_done_callback(completed)
+            return state
+        except Exception:
+            slots.release()
+            raise
+
+    @router.post("/generate", status_code=202)
+    def generate_artwork(payload: AIGenerationJob):
+        if not ai_generation_configured():
+            raise EngineError(
+                "AI_GENERATION_NOT_CONFIGURED",
+                "OpenRouter image generation is not configured on the engine.",
+            )
+        if not slots.acquire(blocking=False):
+            raise HTTPException(429, "Engine queue is full. Try again after an active job completes.")
+        job_id = uuid.uuid4()
+        directory = jobs / str(job_id)
+        try:
+            directory.mkdir()
+            state = {
+                "job_id": str(job_id), "status": "queued",
+                "progress": 0, "stage": "queued_generation",
+                "production_ready": False,
+            }
+            atomic_json(directory / "state.json", state)
+            atomic_json(directory / "request.json", {
+                "mode": "new_artwork_from_brief", **payload.model_dump(mode="json"),
+            })
+            selected_profile = cmyk_profile
+            if selected_profile:
+                ColorConverter(selected_profile)
+            future = executor.submit(execute_generated, job_id, payload, selected_profile)
             futures[str(job_id)] = future
             def completed(_future):
                 with lock:
