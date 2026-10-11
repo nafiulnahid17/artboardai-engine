@@ -7,13 +7,14 @@
         "."
       ],
       "commands": [
-        "python -m pip install --no-cache-dir -r requirements.txt",
-        "python -c \"import pydantic, fastapi, uvicorn\""
+        "python -m venv --clear .venv",
+        ".venv/bin/python -m pip install --no-cache-dir -r requirements.txt",
+        ".venv/bin/python -c \"import pydantic, fastapi, uvicorn; import artboard_engine.api\""
       ]
     }
   },
   "deploy": {
-    "startCommand": "python -m artboard_engine.server",
+    "startCommand": ".venv/bin/python -m artboard_engine.server",
     "variables": {
       "ARTBOARD_HOST": "0.0.0.0"
     },
